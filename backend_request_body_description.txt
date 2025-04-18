@@ -1,0 +1,19 @@
+在 server.py 文件中，backend_request_body 是在 process_synthesize_request 函数中构建的。
+它是原始请求体 request_body 的一个拷贝，并进行了以下处理：
+
+1. 如果 request_body 中存在 "ref_audio" 字段且其值为字符串，并且以 "data:" 开头，则移除 "data:" 前缀及其之后的部分。
+2. 如果 request_body 中存在 "voices" 字段且其值为字典，则遍历字典中的每个 voice_data。如果 voice_data 中存在 "ref_audio" 字段且其值为字符串，并且以 "data:" 开头，则移除 "data:" 前缀及其之后的部分。
+
+构建 backend_request_body 的代码如下：
+
+backend_request_body = request_body.copy() # Create a copy to avoid modifying the original
+
+# Remove data URL prefix from ref_audio if present
+if "ref_audio" in backend_request_body and isinstance(backend_request_body["ref_audio"], str) and backend_request_body["ref_audio"].startswith("data:"):
+    backend_request_body["ref_audio"] = backend_request_body["ref_audio"].split(",", 1)[1]
+
+# Remove data URL prefix from ref_audio in voices if present
+if "voices" in backend_request_body and isinstance(backend_request_body["voices"], dict):
+    for voice_name, voice_data in backend_request_body["voices"].items():
+        if "ref_audio" in voice_data and isinstance(voice_data["ref_audio"], str) and voice_data["ref_audio"].startswith("data:"):
+            voice_data["ref_audio"] = voice_data["ref_audio"].split(",", 1)[1]

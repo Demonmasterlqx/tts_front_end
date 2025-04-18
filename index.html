@@ -8,9 +8,11 @@
     <link rel="icon" href="logo.png" type="image/png">
 </head>
 <body>
-    <div class="header">
-        <img src="logo.png" alt="F5-TTS Logo" id="logo">
-        <h1>F5-TTS Text-to-Speech</h1>
+    <div class="image-container">
+        <div class="header">
+            <img src="logo.png" alt="F5-TTS Logo" id="logo">
+            <h1>F5-TTS Text-to-Speech</h1>
+        </div>
     </div>
 
     <form id="tts-form">
@@ -21,19 +23,26 @@
             </select>
         </div>
 
-        <div>
+        <div id="ref-audio-container" class="file-upload-area">
             <label for="ref-audio">参考音频:</label>
-            <input type="file" id="ref-audio" accept="audio/*" required>
+            <input type="file" id="ref-audio" accept="audio/*" required style="display: none;">
+            <p>拖放音频文件到此处或点击选择</p>
+            <button type="button" id="record-ref-audio-btn">录音</button>
+            <span id="ref-audio-timer" style="margin-left: 10px;">00:00</span>
         </div>
 
-        <div>
+        <div id="ref-text-container" class="file-upload-area">
             <label for="ref-text">参考文本 (可选):</label>
             <input type="text" id="ref-text">
+            <input type="file" id="ref-text-file" accept=".txt" style="display: none;">
+            <p>拖放文本文件到此处或点击选择</p>
         </div>
 
-        <div>
+        <div id="gen-text-container" class="file-upload-area">
             <label for="gen-text">生成文本:</label>
             <textarea id="gen-text" rows="4" required></textarea>
+            <input type="file" id="gen-text-file" accept=".txt" style="display: none;">
+            <p>拖放文本文件到此处或点击选择</p>
         </div>
 
         <div>

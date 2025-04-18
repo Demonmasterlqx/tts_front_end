@@ -1,10 +1,13 @@
 from fastapi import FastAPI, Request, HTTPException, APIRouter
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles # Import StaticFiles
 import httpx # Use httpx for asynchronous requests
 import json
 import asyncio
 import uuid
+import os # Import os module
+import random # Import random module
 
 app = FastAPI()
 
@@ -38,6 +41,29 @@ async def read_logo():
 async def test_api():
     return {"message": "API test endpoint is working"}
 
+# Mount the manbo_photo directory for background images
+app.mount("/backgrounds", StaticFiles(directory="manbo_photo"), name="backgrounds")
+
+@app.get("/api/background/random")
+async def get_random_background():
+    """
+    Returns the URL of a random image from the manbo_photo directory.
+    """
+    background_dir = "manbo_photo"
+    if not os.path.exists(background_dir):
+        raise HTTPException(status_code=404, detail="Background image directory not found")
+
+    # Filter for common image file extensions
+    valid_extensions = ['.jpg', '.jpeg', '.png', '.avif']
+    images = [f for f in os.listdir(background_dir) if os.path.isfile(os.path.join(background_dir, f)) and os.path.splitext(f)[1].lower() in valid_extensions]
+
+    if not images:
+        raise HTTPException(status_code=404, detail="No supported background images found")
+
+    random_image = random.choice(images)
+    # Return the URL relative to the static mount point
+    return JSONResponse({"url": f"/backgrounds/{random_image}"})
+
 
 BACKEND_API_URL = "http://127.0.0.1:8000"
 
@@ -65,9 +91,15 @@ async def process_synthesize_request(request_id: str, request_body: dict):
     global concurrent_requests
     async with httpx.AsyncClient(timeout=60.0) as client: # Use async httpx client with a timeout
         try:
-            response = await client.post(f"{BACKEND_API_URL}/tts/synthesize", json=request_body) # Use await client.post
-            response.raise_for_status()
+            # Prepare the request body for the backend TTS service
+            backend_request_body = request_body.copy() # Create a copy to avoid modifying the original
 
+            # 将 backend_request_body 的内容输出到文件
+            with open("backend_request_body.json", "w", encoding="utf-8") as f:
+                json.dump(backend_request_body, f, indent=4)
+
+            response = await client.post(f"{BACKEND_API_URL}/tts/synthesize", json=backend_request_body) # Use await client.post with the modified body
+            
             # Store the successful response content and headers
             request_results[request_id] = {
                 "status": "completed",
@@ -76,29 +108,27 @@ async def process_synthesize_request(request_id: str, request_body: dict):
             }
             print(f"Request {request_id} completed successfully.")
 
-        except httpx.RequestError as e: # Catch httpx exceptions
-            # Store the error details
-            status_code = 500 # Default status code for request errors
-            detail = f"Error forwarding request to backend: {e}"
-
-            if e.response is not None:
-                status_code = e.response.status_code
-                if e.response.text:
-                     try:
-                         detail = e.response.json()
-                     except json.JSONDecodeError:
-                         detail = e.response.text
-            else:
-                 # Handle cases like ReadTimeout where e.response is None
-                 detail = f"Request to backend timed out or failed: {e}"
-
+        except httpx.HTTPStatusError as e: # Catch HTTP status errors specifically
+            status_code = e.response.status_code
+            detail = f"Backend returned status code {status_code}: {e.response.text}"
+            print(f"Request {request_id} failed with HTTP status error")
 
             request_results[request_id] = {
                 "status": "error",
                 "status_code": status_code,
                 "detail": detail
             }
-            print(f"Request {request_id} failed: {detail}")
+
+        except httpx.RequestError as e: # Catch other httpx request errors
+            status_code = 500 # Default status code for request errors
+            detail = f"Error forwarding request to backend: {e}"
+            print(f"Request {request_id} failed with request error")
+
+            request_results[request_id] = {
+                "status": "error",
+                "status_code": status_code,
+                "detail": detail
+            }
 
         finally:
             print(f"Before decrement (finally): {concurrent_requests}") # Log before decrement
@@ -130,6 +160,9 @@ async def synthesize_text(request: Request):
     request_id = str(uuid.uuid4())
     try:
         request_body = await request.json()
+        # 打印接收到的原始 request_body 中 ref_audio 的开头
+        if "ref_audio" in request_body and isinstance(request_body["ref_audio"], str):
+            print(f"原始 request_body['ref_audio'] 开头: {request_body['ref_audio'][:100]}...")
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in request body")
 
@@ -156,12 +189,26 @@ async def get_request_status(request_id: str):
         result = request_results[request_id]
         if result["status"] == "completed":
             # For completed requests, return the actual audio data
-            # Remove from results after sending to avoid memory issues
-            del request_results[request_id]
-            # Manually set Content-Type header
-            headers = {"Content-Type": "audio/wav"} # Assuming WAV audio
-            # Wrap the bytes content in a list to yield it as a single chunk
-            return StreamingResponse(content=[result["body"]], headers=headers)
+            try:
+                # Log the received headers and a snippet of the body
+                print(f"Request {request_id} completed. Received headers: {result['headers']}")
+                body_snippet = result['body'][:200] # Log first 200 bytes
+                print(f"Request {request_id} completed. Received body snippet: {body_snippet}")
+
+                # Manually set Content-Type header based on received headers, default to audio/wav
+                content_type = result["headers"].get("Content-Type", "audio/wav")
+
+                # Remove from results after sending to avoid memory issues
+                del request_results[request_id]
+
+                # Return the raw body content as a Response with appropriate media type
+                return Response(content=result["body"], media_type=content_type)
+
+            except Exception as e:
+                # Catch any errors during processing and return a 500 error
+                print(f"Error processing completed request {request_id}: {e}")
+                raise HTTPException(status_code=500, detail=f"Error processing audio data: {e}")
+
         elif result["status"] == "error":
              # For failed requests, return the error details
              del request_results[request_id]
