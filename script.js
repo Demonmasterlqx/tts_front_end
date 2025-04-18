@@ -1,10 +1,18 @@
-const API_BASE_URL = 'http://127.0.0.1:8001/api';
+const API_BASE_URL = '/api';
+
+let availableModels = []; // Store fetched models
 
 document.addEventListener('DOMContentLoaded', () => {
     fetchModels();
 
     const ttsForm = document.getElementById('tts-form');
     ttsForm.addEventListener('submit', handleSynthesize);
+
+    const addVoiceBtn = document.getElementById('add-voice-btn');
+    addVoiceBtn.addEventListener('click', addVoiceInput);
+
+    const modelSelect = document.getElementById('model-select');
+    modelSelect.addEventListener('change', updateLanguageOptions);
 });
 
 async function fetchModels() {
@@ -14,14 +22,16 @@ async function fetchModels() {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const models = await response.json();
+        availableModels = await response.json(); // Store models
         modelSelect.innerHTML = ''; // Clear loading option
-        models.forEach(model => {
+        availableModels.forEach(model => {
             const option = document.createElement('option');
             option.value = model.name;
             option.textContent = model.name;
             modelSelect.appendChild(option);
         });
+        // Trigger language options update for the initially selected model
+        updateLanguageOptions();
     } catch (error) {
         console.error('Error fetching models:', error);
         modelSelect.innerHTML = '<option value="">加载模型失败</option>';
@@ -29,15 +39,79 @@ async function fetchModels() {
     }
 }
 
+function updateLanguageOptions() {
+    const modelSelect = document.getElementById('model-select');
+    const languageSelect = document.getElementById('language-select');
+    const selectedModelName = modelSelect.value;
+
+    // Find the selected model in the availableModels array
+    const selectedModel = availableModels.find(model => model.name === selectedModelName);
+
+    languageSelect.innerHTML = ''; // Clear current options
+    const autoOption = document.createElement('option');
+    autoOption.value = "";
+    autoOption.textContent = "自动检测或使用模型默认";
+    languageSelect.appendChild(autoOption);
+
+
+    if (selectedModel && selectedModel.language) {
+        selectedModel.language.forEach(lang => {
+            const option = document.createElement('option');
+            option.value = lang;
+            option.textContent = lang;
+            languageSelect.appendChild(option);
+        });
+    }
+}
+
+
+function addVoiceInput() {
+    const voicesContainer = document.getElementById('voices-container');
+    const voiceIndex = voicesContainer.querySelectorAll('.voice-input-group').length;
+
+    const voiceInputGroup = document.createElement('div');
+    voiceInputGroup.classList.add('voice-input-group');
+    voiceInputGroup.innerHTML = `
+        <h3>音色 ${voiceIndex + 1}</h3>
+        <div>
+            <label for="voice-name-${voiceIndex}">音色名称:</label>
+            <input type="text" class="voice-name" required>
+        </div>
+        <div>
+            <label for="voice-ref-audio-${voiceIndex}">参考音频:</label>
+            <input type="file" class="voice-ref-audio" accept="audio/*" required>
+        </div>
+        <div>
+            <label for="voice-ref-text-${voiceIndex}">参考文本 (可选):</label>
+            <input type="text" class="voice-ref-text">
+        </div>
+        <button type="button" class="remove-voice-btn">移除音色</button>
+        <hr>
+    `;
+    voicesContainer.appendChild(voiceInputGroup);
+
+    // Add event listener to the remove button
+    voiceInputGroup.querySelector('.remove-voice-btn').addEventListener('click', () => {
+        voicesContainer.removeChild(voiceInputGroup);
+    });
+}
+
+
 async function handleSynthesize(event) {
     event.preventDefault();
+
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const audioPlayer = document.getElementById('audio-player');
+
+    // Hide previous result and show loading indicator
+    audioPlayer.src = '';
+    loadingIndicator.style.display = 'block';
 
     const modelName = document.getElementById('model-select').value;
     const refAudioFile = document.getElementById('ref-audio').files[0];
     const refText = document.getElementById('ref-text').value;
     const genText = document.getElementById('gen-text').value;
-    const language = document.getElementById('language').value;
-    const audioPlayer = document.getElementById('audio-player');
+    const language = document.getElementById('language-select').value; // Get language from select dropdown
 
     if (!modelName || !refAudioFile || !genText) {
         alert('请填写所有必需字段 (模型, 参考音频, 生成文本)');
@@ -110,6 +184,9 @@ async function handleSynthesize(event) {
         console.error('Error synthesizing speech:', error);
         alert('生成语音失败: ' + error.message);
         audioPlayer.src = ''; // Clear previous audio
+    } finally {
+        // Hide loading indicator
+        loadingIndicator.style.display = 'none';
     }
 }
 

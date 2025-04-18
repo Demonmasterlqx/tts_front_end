@@ -1,8 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
 import requests
 import json
 
@@ -17,13 +15,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/", response_class=HTMLResponse)
+# Routes for static files
+@app.get("/")
 async def read_index():
-    with open("index.html", "r", encoding="utf-8") as f:
-        return f.read()
+    return FileResponse("index.html")
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="."), name="static")
+@app.get("/style.css")
+async def read_css():
+    return FileResponse("style.css")
+
+@app.get("/script.js")
+async def read_js():
+    return FileResponse("script.js")
+
+@app.get("/logo.png")
+async def read_logo():
+    return FileResponse("logo.png")
+
 
 BACKEND_API_URL = "http://127.0.0.1:8000"
 

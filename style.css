@@ -63,3 +63,40 @@ button:hover {
 #audio-player {
     margin-top: 10px;
 }
+
+#loading-indicator {
+    text-align: center;
+    color: #007bff;
+    font-weight: bold;
+    margin-top: 15px;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+#logo {
+    max-width: 100px; /* Adjust size as needed */
+    height: auto;
+    margin-bottom: 10px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+    body {
+        margin: 10px;
+    }
+
+    form {
+        padding: 15px;
+    }
+
+    #logo {
+        max-width: 80px; /* Smaller logo on mobile */
+    }
+
+    h1 {
+        font-size: 24px; /* Smaller title on mobile */
+    }
+}
