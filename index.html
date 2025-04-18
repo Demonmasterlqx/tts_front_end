@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F5-TTS Frontend</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>F5-TTS Text-to-Speech</h1>
+
+    <form id="tts-form">
+        <div>
+            <label for="model-select">选择模型:</label>
+            <select id="model-select" required>
+                <option value="">加载中...</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="ref-audio">参考音频:</label>
+            <input type="file" id="ref-audio" accept="audio/*" required>
+        </div>
+
+        <div>
+            <label for="ref-text">参考文本 (可选):</label>
+            <input type="text" id="ref-text">
+        </div>
+
+        <div>
+            <label for="gen-text">生成文本:</label>
+            <textarea id="gen-text" rows="4" required></textarea>
+        </div>
+
+        <div>
+            <label for="language">语言 (可选):</label>
+            <input type="text" id="language" placeholder="例如: zh 或 en">
+        </div>
+
+        </div>
+
+        <div id="voices-container">
+            <h2>多音色配置 (可选):</h2>
+            <button type="button" id="add-voice-btn">添加音色</button>
+            <!-- Voice inputs will be added here by JavaScript -->
+        </div>
+
+        <div>
+            <button type="submit">生成语音</button>
+        </div>
+    </form>
+
+    <div id="result">
+        <h2>生成的语音:</h2>
+        <audio id="audio-player" controls></audio>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
