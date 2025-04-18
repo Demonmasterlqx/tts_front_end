@@ -1,6 +1,8 @@
 const API_BASE_URL = '/api';
 
 let availableModels = []; // Store fetched models
+let currentRequestId = null; // To keep track of the current request ID for polling
+let pollingInterval = null; // To store the interval timer for polling
 
 document.addEventListener('DOMContentLoaded', () => {
     fetchModels();
@@ -102,10 +104,23 @@ async function handleSynthesize(event) {
 
     const loadingIndicator = document.getElementById('loading-indicator');
     const audioPlayer = document.getElementById('audio-player');
+    const resultDiv = document.getElementById('result'); // Get result div to display messages
 
-    // Hide previous result and show loading indicator
+    // Clear previous result and messages
     audioPlayer.src = '';
+    resultDiv.innerHTML = '<h2>生成的语音:</h2><audio id="audio-player" controls></audio>'; // Reset result div content
+    const updatedAudioPlayer = document.getElementById('audio-player'); // Get reference to the new audio player
+
+    // Stop any ongoing polling
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+
+
+    // Show loading indicator
     loadingIndicator.style.display = 'block';
+
 
     const modelName = document.getElementById('model-select').value;
     const refAudioFile = document.getElementById('ref-audio').files[0];
@@ -115,6 +130,7 @@ async function handleSynthesize(event) {
 
     if (!modelName || !refAudioFile || !genText) {
         alert('请填写所有必需字段 (模型, 参考音频, 生成文本)');
+        loadingIndicator.style.display = 'none'; // Hide loading on validation error
         return;
     }
 
@@ -152,6 +168,7 @@ async function handleSynthesize(event) {
             };
         } else if (voiceName || voiceRefAudioFile) {
              alert(`请为音色 "${voiceName || voiceRefAudioFile.name}" 提供名称和参考音频.`);
+             loadingIndicator.style.display = 'none'; // Hide loading on validation error
              return;
         }
     }
@@ -170,25 +187,145 @@ async function handleSynthesize(event) {
             body: JSON.stringify(requestBody),
         });
 
+        const responseData = await response.json();
+
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(`HTTP error! status: ${response.status}, Detail: ${JSON.stringify(errorData)}`);
+             // Handle API errors (e.g., 400, 500 from jump server or backend)
+             const errorMessage = responseData.detail || JSON.stringify(responseData);
+             throw new Error(`API error! status: ${response.status}, Detail: ${errorMessage}`);
         }
 
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioPlayer.src = audioUrl;
-        audioPlayer.play();
+
+        currentRequestId = responseData.request_id;
+        const status = responseData.status;
+
+        if (status === "completed") {
+            // Request completed immediately, fetch and play audio
+            loadingIndicator.style.display = 'none'; // Hide loading
+            // Fetch the audio data (the status endpoint for completed requests returns the audio)
+            const audioResponse = await fetch(`${API_BASE_URL}/tts/status/${currentRequestId}`);
+            if (!audioResponse.ok) {
+                 throw new Error(`Failed to fetch audio data: ${audioResponse.status}`);
+            }
+            const audioBlob = await audioResponse.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            resultDiv.innerHTML = '<h2>生成的语音:</h2><audio id="audio-player" controls></audio>'; // Reset result div
+            const updatedAudioPlayer = document.getElementById('audio-player'); // Get reference to the new audio player
+            updatedAudioPlayer.src = audioUrl;
+            updatedAudioPlayer.play();
+            console.log(`Request ${currentRequestId} completed and audio played.`);
+
+
+        } else if (status === "processing") {
+            // Request is being processed immediately
+            resultDiv.innerHTML = `<h2>生成的语音:</h2><p>正在处理您的请求...</p><audio id="audio-player" controls></audio>`;
+            // Start polling for status
+            pollingInterval = setInterval(() => checkRequestStatus(currentRequestId), 2000); // Poll every 2 seconds
+
+        } else if (status === "queued") {
+            // Request is queued
+            const position = responseData.position;
+            resultDiv.innerHTML = `<h2>生成的语音:</h2><p>您的请求已加入队列，当前排队位置：${position}</p><audio id="audio-player" controls></audio>`;
+            // Start polling for status
+            pollingInterval = setInterval(() => checkRequestStatus(currentRequestId), 2000); // Poll every 2 seconds
+
+        } else {
+            // Unexpected status
+            throw new Error(`Unexpected response status: ${status}`);
+        }
+
 
     } catch (error) {
-        console.error('Error synthesizing speech:', error);
-        alert('生成语音失败: ' + error.message);
-        audioPlayer.src = ''; // Clear previous audio
-    } finally {
-        // Hide loading indicator
-        loadingIndicator.style.display = 'none';
+        console.error('Error initiating synthesis:', error);
+        // Ensure loading indicator is hidden and display error in result div
+        displayError('发起语音生成请求失败: ' + error.message);
     }
 }
+
+async function checkRequestStatus(requestId) {
+    const resultDiv = document.getElementById('result');
+    const audioPlayer = document.getElementById('audio-player');
+    const loadingIndicator = document.getElementById('loading-indicator'); // Get loading indicator reference
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/tts/status/${requestId}`);
+
+        if (response.status === 404) {
+            // Request ID not found, might have been processed and result retrieved, or invalid
+            console.warn(`Request ID ${requestId} not found or expired.`);
+            displayError('请求状态未知或已过期。');
+            return;
+        }
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            const errorMessage = errorData.detail || JSON.stringify(errorData);
+            throw new Error(`Status check error! status: ${response.status}, Detail: ${errorMessage}`);
+        }
+
+        const statusData = await response.json();
+        const status = statusData.status;
+
+        if (status === "completed") {
+            // Request completed, fetch the audio data
+            clearInterval(pollingInterval); // Stop polling
+            pollingInterval = null;
+            loadingIndicator.style.display = 'none'; // Hide loading
+
+            // Fetch the audio data (the status endpoint for completed requests returns the audio)
+            const audioResponse = await fetch(`${API_BASE_URL}/tts/status/${requestId}`);
+            if (!audioResponse.ok) {
+                 throw new Error(`Failed to fetch audio data: ${audioResponse.status}`);
+            }
+            const audioBlob = await audioResponse.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            resultDiv.innerHTML = '<h2>生成的语音:</h2><audio id="audio-player" controls></audio>'; // Reset result div
+            const updatedAudioPlayer = document.getElementById('audio-player'); // Get reference to the new audio player
+            updatedAudioPlayer.src = audioUrl;
+            updatedAudioPlayer.play();
+            console.log(`Request ${requestId} completed and audio played.`);
+
+
+        } else if (status === "queued") {
+            // Still in queue, update position
+            const position = statusData.position;
+            resultDiv.innerHTML = `<h2>生成的语音:</h2><p>您的请求已加入队列，当前排队位置：${position}</p><audio id="audio-player" controls></audio>`;
+            console.log(`Request ${requestId} still queued. Position: ${position}`);
+
+        } else if (status === "processing") {
+             // Still processing
+             resultDiv.innerHTML = `<h2>生成的语音:</h2><p>正在处理您的请求...</p><audio id="audio-player" controls></audio>`;
+             console.log(`Request ${requestId} still processing.`);
+
+        } else {
+            // Unexpected status
+            console.error(`Unexpected status received for request ${requestId}: ${status}`);
+            displayError(`生成失败: 未知状态 ${status}`);
+        }
+
+    } catch (error) {
+        console.error(`Error checking status for request ${requestId}:`, error);
+        displayError(`生成失败: 状态检查错误 - ${error.message}`);
+    }
+}
+
+function displayError(message) {
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const resultDiv = document.getElementById('result');
+
+    // Ensure loading indicator is hidden
+    loadingIndicator.style.display = 'none';
+
+    // Stop any ongoing polling
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+
+    // Clear previous result and messages and display the error
+    resultDiv.innerHTML = `<h2>生成的语音:</h2><p style="color: red;">${message}</p><audio id="audio-player" controls></audio>`;
+}
+
 
 function fileToBase64(file) {
     return new Promise((resolve, reject) => {
