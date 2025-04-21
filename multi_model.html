@@ -45,12 +45,19 @@
             <p>拖放文本文件到此处或点击选择</p>
         </div>
 
+        <div id="language-container">
+            <label for="language-select">语言:</label>
+            <select id="language-select">
+                <option value="">自动检测或使用模型默认</option>
+            </select>
+        </div>
+
         <div>
             <button type="submit" id="start-synthesis-btn">开始合成</button>
         </div>
     </form>
 
-    <script src="script.js"></script>
-    <script src="multi_model_script.js"></script>
+    <script src="./script.js"></script>
+    <script src="./multi_model_config.js"></script>
 </body>
 </html>

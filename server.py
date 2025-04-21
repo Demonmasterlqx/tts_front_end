@@ -11,13 +11,24 @@ import random # Import random module
 
 app = FastAPI()
 
+# 添加CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8001", "http://127.0.0.1:8001"],  # 明确允许前端地址
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # 明确列出允许的方法
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
+
 # Add CORS middleware to allow requests from the frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all origins for simplicity, restrict in production
+    allow_origins=["http://localhost:8001", "http://127.0.0.1:8000"], # Explicitly allow frontend origins
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], # Explicitly list allowed methods
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Routes for static files
@@ -45,9 +56,13 @@ async def read_multi_model_html():
 async def read_results_html():
     return FileResponse("results.html")
 
-@app.get("/multi_model_script.js")
-async def read_multi_model_script():
-    return FileResponse("multi_model_script.js")
+@app.get("/multi_model_config.js")
+async def read_multi_model_config():
+    return FileResponse("multi_model_config.js")
+
+@app.get("/results.js")
+async def read_results_js():
+    return FileResponse("results.js")
 
 @app.get("/api/test")
 async def test_api():

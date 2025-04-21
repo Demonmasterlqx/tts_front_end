@@ -570,31 +570,31 @@ async function handleSynthesize(event) {
             body: JSON.stringify(requestBody),
         });
 
-        const responseData = await response.json();
-
         if (!response.ok) {
-             // Handle API errors (e.g., 400, 500 from jump server or backend)
-             const errorMessage = responseData.detail || JSON.stringify(responseData);
-             throw new Error(`API error! status: ${response.status}, Detail: ${errorMessage}`);
+            const errorData = await response.json();
+            const errorMessage = errorData.detail || JSON.stringify(errorData);
+            throw new Error(`API error! status: ${response.status}, Detail: ${errorMessage}`);
         }
 
+        // Check content type to determine how to handle response
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            const responseData = await response.json();
+            currentRequestId = responseData.request_id;
+            const status = responseData.status;
 
-        currentRequestId = responseData.request_id;
-        const status = responseData.status;
+            if (status === "completed") {
+                // Request completed immediately, fetch and play audio
+                clearInterval(pollingInterval); // Stop polling
+                pollingInterval = null;
+                loadingIndicator.style.display = 'none'; // Hide loading
 
-        if (status === "completed") {
-            // Request completed immediately, fetch and play audio
-            clearInterval(pollingInterval); // Stop polling
-            pollingInterval = null;
-            loadingIndicator.style.display = 'none'; // Hide loading
-
-            // Request completed, fetch the audio data
-            clearInterval(pollingInterval); // Stop polling
-            pollingInterval = null;
-            loadingIndicator.style.display = 'none'; // Hide loading
-
-            // The status endpoint for completed requests directly returns the audio data
-            const audioBlob = await response.blob(); // Get the response as a Blob
+                // Make a new request to get the audio data
+                const audioResponse = await fetch(`${API_BASE_URL}/tts/status/${currentRequestId}`);
+                if (!audioResponse.ok) {
+                    throw new Error(`Failed to fetch audio data: ${audioResponse.status}`);
+                }
+                const audioBlob = await audioResponse.blob();
             const audioUrl = URL.createObjectURL(audioBlob);
             resultDiv.innerHTML = '<h2>生成的语音:</h2><audio id="audio-player" controls></audio>'; // Reset result div
             const updatedAudioPlayer = document.getElementById('audio-player'); // Get reference to the new audio player
@@ -602,26 +602,24 @@ async function handleSynthesize(event) {
             updatedAudioPlayer.play();
             console.log(`Request ${currentRequestId} completed and audio played.`);
 
+            } else if (status === "processing") {
+                // Request is being processed immediately
+                resultDiv.innerHTML = `<h2>生成的语音:</h2><p>正在处理您的请求...</p><audio id="audio-player" controls></audio>`;
+                // Start polling for status
+                pollingInterval = setInterval(() => checkRequestStatus(currentRequestId), 2000); // Poll every 2 seconds
 
-        } else if (status === "processing") {
-            // Request is being processed immediately
-            resultDiv.innerHTML = `<h2>生成的语音:</h2><p>正在处理您的请求...</p><audio id="audio-player" controls></audio>`;
-            // Start polling for status
-            pollingInterval = setInterval(() => checkRequestStatus(currentRequestId), 2000); // Poll every 2 seconds
+            } else if (status === "queued") {
+                // Request is queued
+                const position = statusData.position;
+                resultDiv.innerHTML = `<h2>生成的语音:</h2><p>您的请求已加入队列，当前排队位置：${position}</p><audio id="audio-player" controls></audio>`;
+                // Start polling for status
+                pollingInterval = setInterval(() => checkRequestStatus(currentRequestId), 2000); // Poll every 2 seconds
 
-        } else if (status === "queued") {
-            // Request is queued
-            const position = statusData.position;
-            resultDiv.innerHTML = `<h2>生成的语音:</h2><p>您的请求已加入队列，当前排队位置：${position}</p><audio id="audio-player" controls></audio>`;
-            // Start polling for status
-            pollingInterval = setInterval(() => checkRequestStatus(currentRequestId), 2000); // Poll every 2 seconds
-
-        } else {
-            // Unexpected status
-            throw new Error(`Unexpected response status: ${status}`);
+            } else {
+                // Unexpected status
+                throw new Error(`Unexpected response status: ${status}`);
+            }
         }
-
-
     } catch (error) {
         console.error('Error initiating synthesis:', error);
         // Ensure loading indicator is hidden and display error in result div
