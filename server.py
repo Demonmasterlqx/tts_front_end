@@ -37,6 +37,18 @@ async def read_js():
 async def read_logo():
     return FileResponse("logo.png")
 
+@app.get("/multi_model.html")
+async def read_multi_model_html():
+    return FileResponse("multi_model.html")
+
+@app.get("/results.html")
+async def read_results_html():
+    return FileResponse("results.html")
+
+@app.get("/multi_model_script.js")
+async def read_multi_model_script():
+    return FileResponse("multi_model_script.js")
+
 @app.get("/api/test")
 async def test_api():
     return {"message": "API test endpoint is working"}
@@ -98,7 +110,7 @@ async def process_synthesize_request(request_id: str, request_body: dict):
             with open("backend_request_body.json", "w", encoding="utf-8") as f:
                 json.dump(backend_request_body, f, indent=4)
 
-            response = await client.post(f"{BACKEND_API_URL}/tts/synthesize", json=backend_request_body) # Use await client.post with the modified body
+            response = await client.post(f"{BACKEND_API_URL}/tts/synthesize", json=backend_request_body, timeout=10000) # Use await client.post with the modified body
             
             # Store the successful response content and headers
             request_results[request_id] = {

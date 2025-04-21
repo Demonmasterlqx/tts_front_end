@@ -23,6 +23,20 @@
             </select>
         </div>
 
+        <div>
+            <label for="sub-model-select">选择具体模型:</label>
+            <select id="sub-model-select" required>
+                <option value="">请先选择模型组</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="language-select">语言 (可选):</label>
+            <select id="language-select">
+                <option value="">自动检测或使用模型默认</option>
+            </select>
+        </div>
+
         <div id="ref-audio-container" class="file-upload-area">
             <label for="ref-audio">参考音频:</label>
             <input type="file" id="ref-audio" accept="audio/*" required style="display: none;">
@@ -45,15 +59,6 @@
             <p>拖放文本文件到此处或点击选择</p>
         </div>
 
-        <div>
-            <label for="language-select">语言 (可选):</label>
-            <select id="language-select">
-                <option value="">自动检测或使用模型默认</option>
-            </select>
-        </div>
-
-        </div>
-
         <div id="voices-container">
             <h2>多音色配置 (可选):</h2>
             <button type="button" id="add-voice-btn">添加音色</button>
@@ -70,6 +75,10 @@
     <div id="result">
         <h2>生成的语音:</h2>
         <audio id="audio-player" controls></audio>
+    </div>
+
+    <div style="text-align: center; margin-top: 20px;">
+        <button type="button" id="go-to-multi-model-btn">多模型语音合成</button>
     </div>
 
     <script src="script.js"></script>

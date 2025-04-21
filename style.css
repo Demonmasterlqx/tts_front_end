@@ -151,3 +151,123 @@ button:hover {
 .file-upload-area span {
     margin-top: 10px; /* Add space above the timer */
 }
+
+#go-to-multi-model-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: auto; /* Adjust width to content */
+    padding: 10px 20px; /* Add padding */
+    z-index: 1000; /* Ensure it's above other content */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Add shadow */
+}
+
+#model-checkboxes-container {
+    margin-top: 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 10px;
+    background-color: rgba(255, 255, 255, 0.5); /* Slightly transparent background */
+}
+
+.model-group {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee; /* Separator between groups */
+}
+
+.model-group:last-child {
+    border-bottom: none; /* No border for the last group */
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.model-group h3 {
+    margin-top: 0;
+    margin-bottom: 5px;
+    color: #555;
+    font-size: 1.1em;
+}
+
+.models-list {
+    display: grid; /* Use grid for table-like layout */
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); /* Responsive columns */
+    gap: 5px; /* Space between items */
+}
+
+.models-list div {
+    display: flex; /* Align checkbox and label */
+    align-items: center;
+}
+
+.models-list input[type="checkbox"] {
+    margin-right: 5px;
+}
+
+.select-all-group {
+    margin-right: 5px;
+}
+
+/* Styles for the model selection table */
+.model-table {
+    width: 100%;
+    border-collapse: collapse; /* Remove space between borders */
+    margin-bottom: 15px;
+    border: 1px solid #ddd; /* Light border for the table */
+}
+
+.model-table:has(td[colspan="3"]) {
+    border: none;
+}
+
+.model-table caption {
+    font-size: 1.2em;
+    font-weight: bold;
+    margin-bottom: 10px;
+    text-align: left;
+    color: #333;
+}
+
+.model-table th,
+.model-table td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid #eee; /* Light border for rows */
+}
+
+.model-table th {
+    background-color: #f2f2f2; /* Light background for headers */
+    font-weight: bold;
+}
+
+.model-table tr:hover {
+    background-color: #f9f9f9; /* Highlight row on hover */
+}
+
+.model-table input[type="checkbox"] {
+    margin-right: 5px;
+    vertical-align: middle; /* Align checkbox vertically */
+}
+
+.model-table label {
+    display: inline-block; /* Allow label to be next to checkbox */
+    margin-bottom: 0; /* Remove bottom margin */
+    font-weight: normal; /* Normal font weight for labels */
+    vertical-align: middle; /* Align label vertically */
+}
+
+.model-table td:nth-child(1) {
+    width: 33%; /* Distribute columns evenly */
+}
+.model-table td:nth-child(2) {
+    width: 33%;
+}
+.model-table td:nth-child(3) {
+    width: 34%;
+}
+
+/* Style for the select all row */
+.model-table tr:first-child td {
+    font-weight: bold;
+    background-color: transparent;
+}

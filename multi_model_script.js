@@ -1,0 +1,609 @@
+const MAX_RETRIES = 3; // Maximum automatic retry attempts
+const POLLING_INTERVAL = 2000; // Polling interval in milliseconds (2 seconds)
+
+let synthesisTasks = []; // Array to store information about each synthesis task
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Check the current page and initialize accordingly
+    if (document.getElementById('multi-model-form')) {
+        // This is the multi-model configuration page
+        initializeMultiModelConfig();
+    } else if (document.getElementById('results-container')) {
+        // This is the results page
+        initializeResultsPage();
+    }
+});
+
+function initializeMultiModelConfig() {
+    console.log('Initializing multi-model configuration page');
+    setRandomBackground(); // Set background for multi-model page
+    fetchModelsForConfig();
+
+    const multiModelForm = document.getElementById('multi-model-form');
+    multiModelForm.addEventListener('submit', handleMultiModelSynthesize);
+
+    // Call setupFileUploadAndRecording from script.js for the main reference audio
+    if (typeof setupFileUploadAndRecording === 'function') {
+        setupFileUploadAndRecording('ref-audio-container', 'ref-audio', 'record-ref-audio-btn', 'ref-audio-timer');
+    } else {
+        console.error("setupFileUploadAndRecording function not found in script.js. File upload and recording for reference audio may not work.");
+    }
+
+    // Call setupTextFileUpload from script.js for reference text file
+    if (typeof setupTextFileUpload === 'function') {
+        setupTextFileUpload('ref-text-container', 'ref-text-file', 'ref-text');
+    } else {
+        console.error("setupTextFileUpload function not found in script.js. File upload for reference text may not work.");
+    }
+
+    // Call setupTextFileUpload from script.js for generated text file
+    if (typeof setupTextFileUpload === 'function') {
+        setupTextFileUpload('gen-text-container', 'gen-text-file', 'gen-text');
+    } else {
+        console.error("setupTextFileUpload function not found in script.js. File upload for generated text may not work.");
+    }
+
+    // Check for microphone support and setup recording for dynamically added voice inputs
+    if (typeof checkMicrophoneSupportAndSetupRecording === 'function') {
+        checkMicrophoneSupportAndSetupRecording();
+    } else {
+        console.error("checkMicrophoneSupportAndSetupRecording function not found in script.js. Recording for voice inputs may not work.");
+    }
+}
+
+function initializeResultsPage() {
+    console.log('Initializing results page');
+    // Retrieve synthesis tasks from sessionStorage
+    const storedTasks = sessionStorage.getItem('synthesisTasks');
+    if (storedTasks) {
+        synthesisTasks = JSON.parse(storedTasks);
+        displaySynthesisTasks();
+        startPolling();
+    } else {
+        // No tasks found, maybe display an error or redirect back to config
+        const resultsContainer = document.getElementById('results-container');
+        resultsContainer.innerHTML = '<p>没有找到待处理的语音合成任务。</p>';
+    }
+
+    // Add event listener for the download button (will be added dynamically)
+    document.getElementById('overall-status').addEventListener('click', (event) => {
+        if (event.target.id === 'download-all-btn') {
+            downloadAllAudio();
+        }
+    });
+
+     // Add event listener for manual retry buttons (delegated)
+    document.getElementById('results-container').addEventListener('click', (event) => {
+        if (event.target.classList.contains('retry-button')) {
+            const taskIndex = event.target.dataset.taskIndex;
+            if (taskIndex !== undefined) {
+                manualRetryTask(parseInt(taskIndex));
+            }
+        }
+    });
+}
+
+async function fetchModelsForConfig() {
+    const modelCheckboxesContainer = document.getElementById('model-checkboxes-container');
+    // Temporarily show loading
+    modelCheckboxesContainer.innerHTML = '<p>加载模型中...</p>';
+
+    try {
+        if (typeof API_BASE_URL === 'undefined') {
+            throw new Error('API_BASE_URL is not defined');
+        }
+        if (typeof availableModels === 'undefined') {
+            availableModels = []; // Initialize if not defined
+        }
+        
+        console.log('Fetching models from:', `${API_BASE_URL}/tts/models`);
+        const response = await fetch(`${API_BASE_URL}/tts/models`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        availableModels = await response.json(); // Store full model data
+        console.log('Received models data:', JSON.stringify(availableModels, null, 2)); // Debug log with formatted JSON
+        
+        if (!Array.isArray(availableModels)) {
+            throw new Error('Invalid models data format: expected array');
+        }
+
+        // Sort model groups by name
+        availableModels.sort((a, b) => a.name.localeCompare(b.name));
+
+        // Display models as checkboxes
+        displayModelsAsCheckboxes();
+
+    } catch (error) {
+        console.error('Error fetching models:', error);
+        modelCheckboxesContainer.innerHTML = '<p style="color: red;">加载模型失败</p>';
+    }
+}
+
+function displayModelsAsCheckboxes() {
+    const modelCheckboxesContainer = document.getElementById('model-checkboxes-container');
+    modelCheckboxesContainer.innerHTML = ''; // Clear loading message
+
+    if (!availableModels || availableModels.length === 0) {
+        modelCheckboxesContainer.innerHTML = '<p>没有可用模型。</p>';
+        return;
+    }
+
+    console.log('Displaying models:', availableModels); // Debug log
+
+    availableModels.forEach(modelGroup => {
+        console.log('Processing model group:', modelGroup); // Debug log
+        const groupTable = document.createElement('table');
+        groupTable.classList.add('model-table');
+        groupTable.innerHTML = `<caption>${modelGroup.name}</caption>`;
+
+        if (modelGroup.models && modelGroup.models.length > 0) {
+            // Add caption with select all checkbox
+            const selectAllId = `select-all-${modelGroup.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            groupTable.innerHTML = `
+                <caption>
+                    ${modelGroup.name}
+                    <input type="checkbox" id="${selectAllId}" class="select-all-group">
+                    <label for="${selectAllId}">全选</label>
+                </caption>
+            `;
+
+            const models = modelGroup.models.sort((a, b) => a.localeCompare(b));
+            const modelsPerRow = 3; // Number of models per row in the table
+            let row;
+
+            models.forEach((modelName, index) => {
+                if (index % modelsPerRow === 0) {
+                    row = groupTable.insertRow();
+                }
+                const cell = row.insertCell();
+                const modelId = `${modelGroup.name.replace(/[^a-zA-Z0-9]/g, '_')}-${modelName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                cell.innerHTML = `
+                    <input type="checkbox" id="${modelId}" class="model-checkbox" data-group="${modelGroup.name}" data-model="${modelName}">
+                    <label for="${modelId}">${modelName}</label>
+                `;
+            });
+
+            // Add event listener for select all checkbox
+            const selectAllCheckbox = groupTable.querySelector('.select-all-group');
+            selectAllCheckbox.addEventListener('change', (event) => {
+                const isChecked = event.target.checked;
+                groupTable.querySelectorAll('.model-checkbox').forEach(checkbox => {
+                    checkbox.checked = isChecked;
+                });
+            });
+
+        } else {
+            groupTable.innerHTML = `<caption>${modelGroup.name}</caption>`;
+            const noModelsRow = groupTable.insertRow();
+            const noModelsCell = noModelsRow.insertCell();
+            noModelsCell.textContent = "当前模型组无可用模型";
+            noModelsCell.colSpan = 3; // Span across columns
+        }
+
+        modelCheckboxesContainer.appendChild(groupTable);
+    });
+}
+
+
+async function handleMultiModelSynthesize(event) {
+    event.preventDefault();
+    console.log('Handling multi-model synthesis form submission');
+
+    const modelsToSynthesize = [];
+    const modelCheckboxes = document.querySelectorAll('#model-checkboxes-container input[type="checkbox"].model-checkbox:checked');
+    const refAudioInput = document.getElementById('ref-audio');
+    const refText = document.getElementById('ref-text').value;
+    const genText = document.getElementById('gen-text').value;
+
+    if (modelCheckboxes.length === 0) {
+        alert('请至少选择一个模型进行合成。');
+        return;
+    }
+
+    // Check if either a file is selected or recording has provided audioBase64
+    if (!refAudioInput.files[0] && !window.audioBase64) {
+         alert('请提供参考音频和生成文本。');
+         return;
+    }
+
+    // Convert reference audio to Base64 (either from file input or recording)
+    let refAudioBase64 = null;
+    if (refAudioInput.files[0]) {
+        // Call fileToBase64 from script.js
+        if (typeof fileToBase64 === 'function') {
+             refAudioBase64 = await fileToBase64(refAudioInput.files[0]);
+        } else {
+             console.error("fileToBase64 function not found in script.js. Cannot process audio file.");
+             alert("文件处理功能不可用。");
+             return;
+        }
+    } else if (window.audioBase64) { // Use global audioBase64 from recording
+        refAudioBase64 = window.audioBase64;
+    }
+
+
+    if (!refAudioBase64) {
+         alert('无法获取参考音频数据。');
+         return;
+    }
+
+
+    modelCheckboxes.forEach(checkbox => {
+        const groupName = checkbox.dataset.group;
+        const modelName = checkbox.dataset.model;
+
+        modelsToSynthesize.push({
+            group_name: groupName,
+            model_name: modelName,
+        });
+    });
+
+
+    // Prepare synthesis tasks data
+    synthesisTasks = modelsToSynthesize.map(model => ({
+        modelName: `${model.group_name}/${model.model_name}`, // Combine group and model name for display
+        group_name: model.group_name,
+        model_name: model.model_name,
+        ref_audio: refAudioBase64,
+        ref_text: refText,
+        gen_text: genText,
+        status: 'queued', // Initial status
+        requestId: null,
+        retryCount: 0,
+        maxRetries: MAX_RETRIES,
+        audioBlob: null, // To store the resulting audio blob
+    }));
+
+    // Store tasks in sessionStorage and navigate to results page
+    sessionStorage.setItem('synthesisTasks', JSON.stringify(synthesisTasks));
+    window.location.href = 'results.html';
+}
+
+function displaySynthesisTasks() {
+    const resultsContainer = document.getElementById('results-container');
+    resultsContainer.innerHTML = ''; // Clear previous content
+
+    synthesisTasks.forEach((task, index) => {
+        const taskElement = document.createElement('div');
+        taskElement.classList.add('synthesis-task');
+        taskElement.dataset.taskIndex = index; // Store index for manual retry
+
+        let statusHtml = '';
+        if (task.status === 'queued') {
+            statusHtml = `<span style="color: gray;">排队中...</span>`;
+        } else if (task.status === 'processing') {
+            statusHtml = `<span style="color: blue;">处理中...</span>`;
+        } else if (task.status === 'completed') {
+            statusHtml = `<span style="color: green;">已完成</span>`;
+        } else if (task.status === 'failed') {
+             statusHtml = `<span style="color: orange;">失败 (重试 ${task.retryCount}/${task.maxRetries})</span>`;
+        } else if (task.status === 'permanently_failed') {
+            statusHtml = `<span style="color: red;">永久失败</span> <button type="button" class="retry-button" data-task-index="${index}">重试</button>`;
+        }
+
+        taskElement.innerHTML = `
+            <h3>模型: ${task.modelName}</h3>
+            <p>状态: ${statusHtml}</p>
+            <div class="audio-result">
+                <!-- Audio player will be added here if completed -->
+            </div>
+            <hr>
+        `;
+        resultsContainer.appendChild(taskElement);
+
+        // If task is completed, display the audio player
+        if (task.status === 'completed' && task.audioBlob) {
+            displayAudioResult(taskElement, task.audioBlob);
+        }
+    });
+
+    updateOverallStatus();
+}
+
+function updateTaskStatusDisplay(taskIndex) {
+    const taskElement = document.querySelector(`.synthesis-task[data-task-index="${taskIndex}"]`);
+    if (!taskElement) return;
+
+    const task = synthesisTasks[taskIndex];
+    const statusElement = taskElement.querySelector('p');
+
+    let statusHtml = '';
+    if (task.status === 'queued') {
+        statusHtml = `<span style="color: gray;">排队中...</span>`;
+    } else if (task.status === 'processing') {
+        statusHtml = `<span style="color: blue;">处理中...</span>`;
+    } else if (task.status === 'completed') {
+        statusHtml = `<span style="color: green;">已完成</span>`;
+        // Add audio player if completed
+        if (task.audioBlob && !taskElement.querySelector('audio')) {
+             displayAudioResult(taskElement, task.audioBlob);
+        }
+    } else if (task.status === 'failed') {
+         statusHtml = `<span style="color: orange;">失败 (重试 ${task.retryCount}/${task.maxRetries})</span>`;
+    } else if (task.status === 'permanently_failed') {
+        statusHtml = `<span style="color: red;">永久失败</span> <button type="button" class="retry-button" data-task-index="${index}">重试</button>`;
+    }
+
+    statusElement.innerHTML = `状态: ${statusHtml}`;
+    updateOverallStatus();
+}
+
+function displayAudioResult(taskElement, audioBlob) {
+    const audioResultDiv = taskElement.querySelector('.audio-result');
+    audioResultDiv.innerHTML = ''; // Clear previous content
+
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audioPlayer = document.createElement('audio');
+    audioPlayer.controls = true;
+    audioPlayer.src = audioUrl;
+    audioResultDiv.appendChild(audioPlayer);
+
+    // Add download button for individual audio
+    const downloadBtn = document.createElement('button');
+    downloadBtn.textContent = '下载此语音';
+    downloadBtn.addEventListener('click', () => {
+        const task = synthesisTasks[parseInt(taskElement.dataset.taskIndex)];
+        const filename = `${task.modelName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.wav`;
+        const a = document.createElement('a');
+        a.href = audioUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    });
+    audioResultDiv.appendChild(downloadBtn);
+}
+
+
+function updateOverallStatus() {
+    const overallStatusDiv = document.getElementById('overall-status');
+    const totalTasks = synthesisTasks.length;
+    const completedTasks = synthesisTasks.filter(task => task.status === 'completed').length;
+    const failedTasks = synthesisTasks.filter(task => task.status === 'permanently_failed').length;
+    const processingTasks = synthesisTasks.filter(task => task.status === 'processing' || task.status === 'queued' || task.status === 'failed').length; // Include failed as still needing attention
+
+    let statusText = `总任务数: ${totalTasks}, 已完成: ${completedTasks}, 失败: ${failedTasks}, 进行中: ${processingTasks}`;
+
+    if (processingTasks === 0 && totalTasks > 0) {
+        statusText += " - 所有任务已完成或失败。";
+        // Show download all button if there are completed tasks
+        if (completedTasks > 0) {
+            if (!document.getElementById('download-all-btn')) {
+                 const downloadAllBtn = document.createElement('button');
+                 downloadAllBtn.id = 'download-all-btn';
+                 downloadAllBtn.textContent = '下载所有语音';
+                 overallStatusDiv.appendChild(downloadAllBtn);
+            }
+        } else {
+             // Remove download button if no completed tasks
+             const downloadAllBtn = document.getElementById('download-all-btn');
+             if (downloadAllBtn) {
+                 overallStatusDiv.removeChild(downloadAllBtn);
+             }
+        }
+    } else {
+         // Remove download button if tasks are still processing
+         const downloadAllBtn = document.getElementById('download-all-btn');
+         if (downloadAllBtn) {
+             overallStatusDiv.removeChild(downloadAllBtn);
+         }
+    }
+
+    // Update the text content, excluding the download button if it exists
+    const textNode = overallStatusDiv.childNodes[0]; // Assuming the text node is the first child
+    if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+        textNode.nodeValue = statusText;
+    } else {
+        // If no text node exists, create one
+        overallStatusDiv.insertBefore(document.createTextNode(statusText), overallStatusDiv.firstChild);
+    }
+}
+
+
+function startPolling() {
+    // Clear any existing polling interval
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+    }
+
+    // Start polling for tasks that are not completed or permanently failed
+    pollingInterval = setInterval(async () => {
+        const activeTasks = synthesisTasks.filter(task => task.status === 'queued' || task.status === 'processing' || task.status === 'failed');
+
+        if (activeTasks.length === 0) {
+            clearInterval(pollingInterval); // Stop polling if no active tasks
+            pollingInterval = null;
+            console.log('Polling stopped: No active tasks.');
+            return;
+        }
+
+        for (const task of activeTasks) {
+            if (task.requestId) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/tts/status/${task.requestId}`);
+
+                    if (response.status === 404) {
+                        console.warn(`Request ID ${task.requestId} not found or expired.`);
+                        // Treat as a failure and attempt retry
+                        handleTaskFailure(task);
+                        continue; // Move to the next task
+                    }
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        const errorMessage = errorData.detail || JSON.stringify(errorData);
+                        console.error(`Status check error for request ${task.requestId}: status ${response.status}, Detail: ${errorMessage}`);
+                        handleTaskFailure(task);
+                        continue; // Move to the next task
+                    }
+
+                    const statusData = await response.json();
+                    const status = statusData.status;
+
+                    if (status === "completed") {
+                        console.log(`Request ${task.requestId} completed.`);
+                        task.status = 'completed';
+                        // Fetch the audio data (the status endpoint for completed requests returns the audio)
+                        const audioBlob = await response.blob();
+                        task.audioBlob = audioBlob; // Store the audio blob
+                        updateTaskStatusDisplay(synthesisTasks.indexOf(task)); // Update display for this task
+                        // No need to explicitly display audio here, updateTaskStatusDisplay handles it
+                    } else if (status === "queued") {
+                        task.status = 'queued';
+                        // Optionally update queue position in display
+                         updateTaskStatusDisplay(synthesisTasks.indexOf(task));
+                    } else if (status === "processing") {
+                        task.status = 'processing';
+                         updateTaskStatusDisplay(synthesisTasks.indexOf(task));
+                    } else {
+                        console.error(`Unexpected status received for request ${task.requestId}: ${status}`);
+                        handleTaskFailure(task);
+                    }
+
+                } catch (error) {
+                    console.error(`Error during status check for request ${task.requestId}:`, error);
+                    handleTaskFailure(task);
+                }
+            } else {
+                 // Task is queued but hasn't been sent yet (shouldn't happen if initiated correctly)
+                 console.warn(`Task for model ${task.modelName} is queued but has no request ID.`);
+                 // Attempt to initiate the request
+                 initiateSynthesisTask(task);
+            }
+        }
+
+        // After checking all active tasks, update overall status and save to sessionStorage
+        updateOverallStatus();
+        sessionStorage.setItem('synthesisTasks', JSON.stringify(synthesisTasks.map(task => {
+             // Don't store audioBlob in sessionStorage as it can be large
+             const { audioBlob, ...taskWithoutBlob } = task;
+             return taskWithoutBlob;
+        })));
+
+    }, POLLING_INTERVAL);
+
+    // Also initiate synthesis for tasks that are still 'queued' and haven't been sent yet
+    synthesisTasks.filter(task => task.status === 'queued' && !task.requestId).forEach(task => {
+        initiateSynthesisTask(task);
+    });
+}
+
+async function initiateSynthesisTask(task) {
+    console.log(`Initiating synthesis for model: ${task.modelName}`);
+    task.status = 'processing'; // Set status to processing before sending
+    updateTaskStatusDisplay(synthesisTasks.indexOf(task)); // Update display
+
+    const requestBody = {
+        group_name: task.group_name,
+        model_name: task.model_name,
+        ref_audio: task.ref_audio,
+        ref_text: task.ref_text,
+        gen_text: task.gen_text,
+        // language: task.language, // Add language if needed
+        // voices: task.voices, // Add voices if needed
+    };
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/tts/synthesize`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody),
+        });
+
+        const responseData = await response.json();
+
+        if (!response.ok) {
+             const errorMessage = responseData.detail || JSON.stringify(responseData);
+             throw new Error(`API error! status: ${response.status}, Detail: ${errorMessage}`);
+        }
+
+        task.requestId = responseData.request_id;
+        task.status = responseData.status; // Update status based on initial response (queued or processing)
+        updateTaskStatusDisplay(synthesisTasks.indexOf(task)); // Update display
+
+        // If completed immediately, fetch audio
+        if (task.status === 'completed') {
+             console.log(`Request ${task.requestId} completed immediately.`);
+             const audioResponse = await fetch(`${API_BASE_URL}/tts/status/${task.requestId}`);
+             if (!audioResponse.ok) {
+                 throw new Error(`Failed to fetch audio data: ${audioResponse.status}`);
+             }
+             task.audioBlob = await audioResponse.blob();
+             updateTaskStatusDisplay(synthesisTasks.indexOf(task));
+        }
+
+
+    } catch (error) {
+        console.error(`Error initiating synthesis for ${task.modelName}:`, error);
+        handleTaskFailure(task);
+    }
+}
+
+
+function handleTaskFailure(task) {
+    task.retryCount++;
+    if (task.retryCount <= task.maxRetries) {
+        task.status = 'failed'; // Indicate temporary failure and retrying
+        console.log(`Task for ${task.modelName} failed, retrying (${task.retryCount}/${task.maxRetries})...`);
+        updateTaskStatusDisplay(synthesisTasks.indexOf(task));
+        // Automatically retry after a delay
+        setTimeout(() => initiateSynthesisTask(task), POLLING_INTERVAL * Math.pow(2, task.retryCount - 1)); // Exponential backoff
+    } else {
+        task.status = 'permanently_failed';
+        console.error(`Task for ${task.modelName} permanently failed after ${task.maxRetries} retries.`);
+        updateTaskStatusDisplay(synthesisTasks.indexOf(task));
+    }
+}
+
+function manualRetryTask(taskIndex) {
+    const task = synthesisTasks[taskIndex];
+    if (task.status === 'permanently_failed') {
+        console.log(`Manually retrying task for model: ${task.modelName}`);
+        task.retryCount = 0; // Reset retry count
+        task.requestId = null; // Clear previous request ID
+        task.audioBlob = null; // Clear previous audio result
+        initiateSynthesisTask(task); // Initiate a new synthesis request
+    }
+}
+
+
+async function downloadAllAudio() {
+    console.log('Downloading all audio...');
+    // Ensure JSZip library is loaded
+    if (typeof JSZip === 'undefined') {
+        console.error('JSZip library not loaded.');
+        alert('下载功能所需库未加载，请稍后再试或刷新页面。');
+        return;
+    }
+
+    const zip = new JSZip();
+    const completedTasks = synthesisTasks.filter(task => task.status === 'completed' && task.audioBlob);
+
+    if (completedTasks.length === 0) {
+        alert('没有已完成的语音可以下载。');
+        return;
+    }
+
+    for (const task of completedTasks) {
+        const filename = `${task.modelName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.wav`;
+        zip.file(filename, task.audioBlob);
+    }
+
+    try {
+        const zipBlob = await zip.generateAsync({ type: "blob" });
+        const zipFilename = `tts_results_${Date.now()}.zip`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(zipBlob);
+        a.download = zipFilename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        console.log(`Generated and triggered download for ${zipFilename}`);
+    } catch (error) {
+        console.error('Error generating or downloading zip:', error);
+        alert('打包下载失败。');
+    }
+}

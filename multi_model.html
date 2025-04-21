@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>F5-TTS Multi-Model Synthesis</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="logo.png" type="image/png">
+</head>
+<body>
+    <div class="image-container">
+        <div class="header">
+            <img src="logo.png" alt="F5-TTS Logo" id="logo">
+            <h1>多模型语音合成配置</h1>
+        </div>
+    </div>
+
+    <form id="multi-model-form">
+        <h2>选择模型:</h2>
+        <div id="model-checkboxes-container">
+            <!-- Model checkboxes will be added here by JavaScript -->
+        </div>
+
+        <hr>
+
+        <div id="ref-audio-container" class="file-upload-area">
+            <label for="ref-audio">参考音频:</label>
+            <input type="file" id="ref-audio" accept="audio/*" required style="display: none;">
+            <p>拖放音频文件到此处或点击选择</p>
+            <button type="button" id="record-ref-audio-btn">录音</button>
+            <span id="ref-audio-timer" style="margin-left: 10px;">00:00</span>
+        </div>
+
+        <div id="ref-text-container" class="file-upload-area">
+            <label for="ref-text">参考文本 (可选):</label>
+            <input type="text" id="ref-text">
+            <input type="file" id="ref-text-file" accept=".txt" style="display: none;">
+            <p>拖放文本文件到此处或点击选择</p>
+        </div>
+
+        <div id="gen-text-container" class="file-upload-area">
+            <label for="gen-text">生成文本:</label>
+            <textarea id="gen-text" rows="4" required></textarea>
+            <input type="file" id="gen-text-file" accept=".txt" style="display: none;">
+            <p>拖放文本文件到此处或点击选择</p>
+        </div>
+
+        <div>
+            <button type="submit" id="start-synthesis-btn">开始合成</button>
+        </div>
+    </form>
+
+    <script src="script.js"></script>
+    <script src="multi_model_script.js"></script>
+</body>
+</html>

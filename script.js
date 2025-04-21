@@ -4,7 +4,41 @@ let availableModels = []; // Store fetched models
 let currentRequestId = null; // To keep track of the current request ID for polling
 let pollingInterval = null; // To store the interval timer for polling
 
+// Global variables for recording
+let mediaRecorder;
+let audioChunks = [];
+let audioBlob;
+let audioBase64;
+let recordingTimer;
+let recordingStartTime;
+const MAX_RECORDING_TIME = 60; // Maximum recording time in seconds
+
 document.addEventListener('DOMContentLoaded', () => {
+    // Check the current page and initialize accordingly
+    if (document.getElementById('tts-form')) {
+        // This is the single model configuration page
+        initializeSingleModelConfig();
+    } else if (document.getElementById('multi-model-form')) {
+        // This is the multi-model configuration page
+        // Initialization for multi-model is handled in multi_model_script.js
+        // Ensure background is set for this page too
+        setRandomBackground();
+    } else if (document.getElementById('results-container')) {
+        // This is the results page
+        // Initialization for results is handled in multi_model_script.js
+        // Ensure background is set for this page too
+        setRandomBackground();
+    }
+
+    const goToMultiModelBtn = document.getElementById('go-to-multi-model-btn');
+    if (goToMultiModelBtn) {
+        goToMultiModelBtn.addEventListener('click', () => {
+            window.location.href = 'multi_model.html';
+        });
+    }
+});
+
+function initializeSingleModelConfig() {
     fetchModels();
     setRandomBackground(); // Call the function to set random background
 
@@ -15,139 +49,140 @@ document.addEventListener('DOMContentLoaded', () => {
     addVoiceBtn.addEventListener('click', addVoiceInput);
 
     const modelSelect = document.getElementById('model-select');
-    modelSelect.addEventListener('change', updateLanguageOptions);
+    modelSelect.addEventListener('change', updateModelAndLanguageOptions);
+
+    // Setup file upload and recording for the main reference audio
+    setupFileUploadAndRecording('ref-audio-container', 'ref-audio', 'record-ref-audio-btn', 'ref-audio-timer');
+
+    // Setup file upload for reference text file
+    setupTextFileUpload('ref-text-container', 'ref-text-file', 'ref-text');
+
+    // Setup file upload for generated text file
+    setupTextFileUpload('gen-text-container', 'gen-text-file', 'gen-text');
+
+    // Check for microphone support and setup recording for dynamically added voice inputs
+    checkMicrophoneSupportAndSetupRecording();
+}
+
+
+// Function to setup file upload and recording for a given container
+function setupFileUploadAndRecording(containerId, fileInputId, recordButtonId, timerSpanId) {
+    const container = document.getElementById(containerId);
+    const fileInput = document.getElementById(fileInputId);
+    const recordButton = document.getElementById(recordButtonId);
+    const timerSpan = document.getElementById(timerSpanId);
+    const fileUploadP = container.querySelector('p');
+
+    if (!container || !fileInput || !recordButton || !timerSpan || !fileUploadP) {
+        console.error(`Could not find all elements for setupFileUploadAndRecording with containerId: ${containerId}`);
+        return;
+    }
 
     // Add drag and drop functionality
-    const refAudioContainer = document.getElementById('ref-audio-container');
-    const refAudioInput = document.getElementById('ref-audio');
-
-    refAudioContainer.addEventListener('dragover', (event) => {
+    container.addEventListener('dragover', (event) => {
         event.preventDefault();
-        refAudioContainer.classList.add('dragover');
+        container.classList.add('dragover');
     });
 
-    refAudioContainer.addEventListener('dragleave', () => {
-        refAudioContainer.classList.remove('dragover');
+    container.addEventListener('dragleave', () => {
+        container.classList.remove('dragover');
     });
 
-    refAudioContainer.addEventListener('drop', (event) => {
+    container.addEventListener('drop', (event) => {
         event.preventDefault();
-        refAudioContainer.classList.remove('dragover');
+        container.classList.remove('dragover');
         const files = event.dataTransfer.files;
         if (files.length > 0) {
-            refAudioInput.files = files;
+            fileInput.files = files;
             // Optionally display the selected file name
             const fileName = files[0].name;
-            const pTag = refAudioContainer.querySelector('p');
-            if (pTag) {
-                pTag.textContent = `已选择文件: ${fileName}`;
-            }
+            fileUploadP.textContent = `已选择文件: ${fileName}`;
         }
     });
 
     // Add click to select functionality
-    refAudioContainer.addEventListener('click', (event) => {
+    container.addEventListener('click', (event) => {
         // Only trigger file input click if the click wasn't on the record button
-        const recordRefAudioBtn = document.getElementById('record-ref-audio-btn');
-        if (event.target !== recordRefAudioBtn) {
-            refAudioInput.click();
+        if (event.target !== recordButton) {
+            fileInput.click();
         }
     });
 
     // Update displayed file name when file is selected via click
-    refAudioInput.addEventListener('change', () => {
-        const files = refAudioInput.files;
-        const pTag = refAudioContainer.querySelector('p');
+    fileInput.addEventListener('change', () => {
+        const files = fileInput.files;
         if (files.length > 0) {
             const fileName = files[0].name;
-            if (pTag) {
-                pTag.textContent = `已选择文件: ${fileName}`;
-            }
+            fileUploadP.textContent = `已选择文件: ${fileName}`;
         } else {
-             if (pTag) {
-                pTag.textContent = `拖放音频文件到此处或点击选择`;
-            }
+             fileUploadP.textContent = `拖放音频文件到此处或点击选择`;
         }
     });
 
-    // Add drag and drop and click to select functionality for reference text file
-    const refTextContainer = document.getElementById('ref-text-container');
-    const refTextFileInput = document.getElementById('ref-text-file');
-    const refTextInput = document.getElementById('ref-text'); // Get reference to the text input
+    // Add event listener for the record button
+    recordButton.addEventListener('click', (event) => toggleRecording(event, fileInput, timerSpan, fileUploadP));
 
-    refTextContainer.addEventListener('dragover', (event) => {
-        event.preventDefault();
-        refTextContainer.classList.add('dragover');
-    });
-
-    refTextContainer.addEventListener('dragleave', () => {
-        refTextContainer.classList.remove('dragover');
-    });
-
-    refTextContainer.addEventListener('drop', (event) => {
-        event.preventDefault();
-        refTextContainer.classList.remove('dragover');
-        const files = event.dataTransfer.files;
-        if (files.length > 0) {
-            handleTextFileUpload(files[0], refTextInput, refTextContainer);
-        }
-    });
-
-    refTextContainer.addEventListener('click', (event) => {
-         // Only trigger file input click if the click wasn't on the text input
-        const refTextInput = document.getElementById('ref-text');
-        if (event.target !== refTextInput) {
-            refTextFileInput.click();
-        }
-    });
-
-    refTextFileInput.addEventListener('change', (event) => {
-        const files = event.target.files;
-        if (files.length > 0) {
-            handleTextFileUpload(files[0], refTextInput, refTextContainer);
-        }
-    });
-
-    // Add drag and drop and click to select functionality for generated text file
-    const genTextContainer = document.getElementById('gen-text-container');
-    const genTextFileInput = document.getElementById('gen-text-file');
-    const genTextInput = document.getElementById('gen-text'); // Get reference to the textarea
-
-    genTextContainer.addEventListener('dragover', (event) => {
-        event.preventDefault();
-        genTextContainer.classList.add('dragover');
-    });
-
-    genTextContainer.addEventListener('dragleave', () => {
-        genTextContainer.classList.remove('dragover');
-    });
-
-    genTextContainer.addEventListener('drop', (event) => {
-        event.preventDefault();
-        genTextContainer.classList.remove('dragover');
-        const files = event.dataTransfer.files;
-        if (files.length > 0) {
-            handleTextFileUpload(files[0], genTextInput, genTextContainer);
-        }
-    });
-
-    genTextContainer.addEventListener('click', (event) => {
-         // Only trigger file input click if the click wasn't on the textarea
-        const genTextInput = document.getElementById('gen-text');
-        if (event.target !== genTextInput) {
-            genTextFileInput.click();
-        }
-    });
-
-    genTextFileInput.addEventListener('change', (event) => {
-        const files = event.target.files;
-        if (files.length > 0) {
-            handleTextFileUpload(files[0], genTextInput, genTextContainer);
-        }
-    });
-
-    // Check for microphone support
+    // Initial check for microphone support for this specific record button
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        recordButton.disabled = true;
+        recordButton.textContent = '录音 (不支持)';
+        recordButton.style.backgroundColor = '#ccc';
+        timerSpan.textContent = '不支持录音';
+        timerSpan.style.display = 'inline';
+    } else {
+         timerSpan.style.display = 'none'; // Hide timer initially if supported
+    }
+}
+
+// Function to setup text file upload for a given container
+function setupTextFileUpload(containerId, fileInputId, targetElementId) {
+    const container = document.getElementById(containerId);
+    const fileInput = document.getElementById(fileInputId);
+    const targetElement = document.getElementById(targetElementId); // This can be input or textarea
+    const pTag = container.querySelector('p');
+
+     if (!container || !fileInput || !targetElement || !pTag) {
+        console.error(`Could not find all elements for setupTextFileUpload with containerId: ${containerId}`);
+        return;
+    }
+
+    container.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        container.classList.add('dragover');
+    });
+
+    container.addEventListener('dragleave', () => {
+        container.classList.remove('dragover');
+    });
+
+    container.addEventListener('drop', (event) => {
+        event.preventDefault();
+        container.classList.remove('dragover');
+        const files = event.dataTransfer.files;
+        if (files.length > 0) {
+            handleTextFileUpload(files[0], targetElement, container);
+        }
+    });
+
+    container.addEventListener('click', (event) => {
+         // Only trigger file input click if the click wasn't on the target element
+        if (event.target !== targetElement) {
+            fileInput.click();
+        }
+    });
+
+    fileInput.addEventListener('change', (event) => {
+        const files = event.target.files;
+        if (files.length > 0) {
+            handleTextFileUpload(files[0], targetElement, container);
+        }
+    });
+}
+
+
+// Function to check microphone support and setup recording for dynamically added voice inputs
+function checkMicrophoneSupportAndSetupRecording() {
+     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         const recordButtons = document.querySelectorAll('button[id^="record-"], button[class^="record-"]');
         recordButtons.forEach(button => {
             button.disabled = true;
@@ -161,33 +196,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         alert('您的浏览器不支持麦克风访问功能。录音按钮已禁用。');
     }
+}
 
-
-    // Add event listener for the main reference audio record button
-    const recordRefAudioBtn = document.getElementById('record-ref-audio-btn');
-    if (recordRefAudioBtn) { // Check if button exists
-        recordRefAudioBtn.addEventListener('click', toggleRecording);
-    }
-});
-
-// Global variables for recording
-let mediaRecorder;
-let audioChunks = [];
-let audioBlob;
-let audioBase64;
-let recordingTimer;
-let recordingStartTime;
-const MAX_RECORDING_TIME = 60; // Maximum recording time in seconds
 
 // Function to toggle recording
-async function toggleRecording(event) {
-    console.log('toggleRecording called'); // Add this line for debugging
+async function toggleRecording(event, fileInput, timerSpan, fileUploadP) {
+    console.log('toggleRecording called');
     const button = event.target;
-    const container = button.closest('.file-upload-area');
-    const timerSpan = container.querySelector('span');
-    const fileInput = container.querySelector('input[type="file"]');
-    const fileUploadP = container.querySelector('p');
-
 
     if (button.textContent === '录音') {
         // Start recording
@@ -219,7 +234,9 @@ async function toggleRecording(event) {
                 }
 
                 // Convert the recorded audio blob to Base64
-                audioBase64 = await blobToBase64(audioBlob);
+                // Store in a global variable or pass back as needed
+                window.audioBase64 = await blobToBase64(audioBlob);
+
 
                 // Stop all tracks in the stream to release the microphone
                 stream.getTracks().forEach(track => track.stop());
@@ -238,7 +255,7 @@ async function toggleRecording(event) {
                 timerSpan.textContent = `${minutes}:${seconds}`;
 
                 if (elapsed >= MAX_RECORDING_TIME) {
-                    toggleRecording(event); // Stop recording automatically
+                    toggleRecording(event, fileInput, timerSpan, fileUploadP); // Stop recording automatically
                 }
             }, 1000);
 
@@ -271,12 +288,12 @@ function blobToBase64(blob) {
 }
 
 // Function to handle text file upload and populate the corresponding text area
-function handleTextFileUpload(file, targetTextArea, containerElement) {
+function handleTextFileUpload(file, targetElement, containerElement) {
     const reader = new FileReader();
     const pTag = containerElement.querySelector('p');
 
     reader.onload = (e) => {
-        targetTextArea.value = e.target.result;
+        targetElement.value = e.target.result;
         if (pTag) {
             pTag.textContent = `已选择文件: ${file.name}`;
             pTag.style.color = ''; // Reset color
@@ -289,7 +306,7 @@ function handleTextFileUpload(file, targetTextArea, containerElement) {
             pTag.textContent = `读取文件失败: ${file.name}`;
             pTag.style.color = 'red'; // Indicate error
         }
-        targetTextArea.value = ''; // Clear text area on error
+        targetElement.value = ''; // Clear text area on error
     };
 
     // Basic file type validation (optional, as accept=".txt" is in HTML)
@@ -300,7 +317,7 @@ function handleTextFileUpload(file, targetTextArea, containerElement) {
             pTag.textContent = `无效的文件类型: ${file.name} (请选择 .txt 文件)`;
             pTag.style.color = 'red'; // Indicate error
         }
-        targetTextArea.value = ''; // Clear text area on error
+        targetElement.value = ''; // Clear text area on error
     }
 }
 
@@ -332,16 +349,19 @@ async function fetchModels() {
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        availableModels = await response.json(); // Store models
+        availableModels = await response.json(); // Store full model data
+        // Sort model groups by name
+        availableModels.sort((a, b) => a.name.localeCompare(b.name));
+
         modelSelect.innerHTML = ''; // Clear loading option
-        availableModels.forEach(model => {
+        availableModels.forEach(modelGroup => { // Iterate through sorted model groups
             const option = document.createElement('option');
-            option.value = model.name;
-            option.textContent = model.name;
+            option.value = modelGroup.name; // Use model group name as value
+            option.textContent = modelGroup.name; // Display model group name
             modelSelect.appendChild(option);
         });
-        // Trigger language options update for the initially selected model
-        updateLanguageOptions();
+        // Trigger language and model options update for the initially selected model group
+        updateModelAndLanguageOptions();
     } catch (error) {
         console.error('Error fetching models:', error);
         modelSelect.innerHTML = '<option value="">加载模型失败</option>';
@@ -349,23 +369,46 @@ async function fetchModels() {
     }
 }
 
-function updateLanguageOptions() {
-    const modelSelect = document.getElementById('model-select');
+function updateModelAndLanguageOptions() {
+    const modelGroupSelect = document.getElementById('model-select'); // This is now model group select
+    const subModelSelect = document.getElementById('sub-model-select'); // Get the new sub-model select
     const languageSelect = document.getElementById('language-select');
-    const selectedModelName = modelSelect.value;
 
-    // Find the selected model in the availableModels array
-    const selectedModel = availableModels.find(model => model.name === selectedModelName);
+    const selectedModelGroupName = modelGroupSelect.value;
 
+    // Find the selected model group in the availableModels array
+    const selectedModelGroup = availableModels.find(modelGroup => modelGroup.name === selectedModelGroupName);
+
+    // Update sub-model options
+    subModelSelect.innerHTML = ''; // Clear current options
+    if (selectedModelGroup && selectedModelGroup.models && selectedModelGroup.models.length > 0) {
+        // Sort models within the group by name
+        selectedModelGroup.models.sort((a, b) => a.localeCompare(b));
+        selectedModelGroup.models.forEach(modelName => {
+            const option = document.createElement('option');
+            option.value = modelName;
+            option.textContent = modelName;
+            subModelSelect.appendChild(option);
+        });
+    } else {
+        const option = document.createElement('option');
+        option.value = "";
+        option.textContent = "当前模型组无可用模型";
+        subModelSelect.appendChild(option);
+        subModelSelect.disabled = true; // Disable if no models
+    }
+    subModelSelect.disabled = !(selectedModelGroup && selectedModelGroup.models && selectedModelGroup.models.length > 0); // Enable/disable based on models
+
+
+    // Update language options
     languageSelect.innerHTML = ''; // Clear current options
     const autoOption = document.createElement('option');
     autoOption.value = "";
     autoOption.textContent = "自动检测或使用模型默认";
     languageSelect.appendChild(autoOption);
 
-
-    if (selectedModel && selectedModel.language) {
-        selectedModel.language.forEach(lang => {
+    if (selectedModelGroup && selectedModelGroup.language) {
+        selectedModelGroup.language.forEach(lang => {
             const option = document.createElement('option');
             option.value = lang;
             option.textContent = lang;
@@ -405,158 +448,11 @@ function addVoiceInput() {
     `;
     voicesContainer.appendChild(voiceInputGroup);
 
-    // Add event listener for the voice audio record button if microphone is supported
-    const recordVoiceAudioBtn = voiceInputGroup.querySelector('.record-voice-audio-btn');
-     if (recordVoiceAudioBtn && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        recordVoiceAudioBtn.addEventListener('click', toggleRecording);
-    } else if (recordVoiceAudioBtn) {
-         recordVoiceAudioBtn.disabled = true;
-         recordVoiceAudioBtn.textContent = '录音 (不支持)';
-         recordVoiceAudioBtn.style.backgroundColor = '#ccc';
-         const timerSpan = voiceInputGroup.querySelector('.voice-audio-timer');
-         if(timerSpan) {
-             timerSpan.textContent = '不支持录音';
-             timerSpan.style.display = 'inline';
-         }
-    }
+    // Setup file upload and recording for the new voice input
+    setupFileUploadAndRecording(`voice-ref-audio-container-${voiceIndex}`, `voice-ref-audio-${voiceIndex}`, voiceInputGroup.querySelector('.record-voice-audio-btn').id || `record-voice-audio-btn-${voiceIndex}`, voiceInputGroup.querySelector('.voice-audio-timer').id || `voice-audio-timer-${voiceIndex}`);
 
-
-    // Add drag and drop and click to select functionality to the new voice audio input
-    const voiceRefAudioContainer = voiceInputGroup.querySelector(`#voice-ref-audio-container-${voiceIndex}`);
-    const voiceRefAudioInput = voiceInputGroup.querySelector(`#voice-ref-audio-${voiceIndex}`);
-    // const recordVoiceAudioBtn = voiceInputGroup.querySelector('.record-voice-audio-btn'); // Already defined above
-
-    voiceRefAudioContainer.addEventListener('dragover', (event) => {
-        event.preventDefault();
-        voiceRefAudioContainer.classList.add('dragover');
-    });
-
-    voiceRefAudioContainer.addEventListener('dragleave', () => {
-        voiceRefAudioContainer.classList.remove('dragover');
-    });
-
-    voiceRefAudioContainer.addEventListener('drop', (event) => {
-        event.preventDefault();
-        voiceRefAudioContainer.classList.remove('dragover');
-        const files = event.dataTransfer.files;
-        if (files.length > 0) {
-            voiceRefAudioInput.files = files;
-            // Optionally display the selected file name
-            const fileName = files[0].name;
-            const pTag = voiceRefAudioContainer.querySelector('p');
-            if (pTag) {
-                pTag.textContent = `已选择文件: ${fileName}`;
-            }
-        }
-    });
-
-    // Add click to select functionality
-    voiceRefAudioContainer.addEventListener('click', (event) => {
-        // Only trigger file input click if the click wasn't on the record button
-        if (event.target !== recordVoiceAudioBtn) {
-            voiceRefAudioInput.click();
-        }
-    });
-
-    // Update displayed file name when file is selected via click
-    voiceRefAudioInput.addEventListener('change', () => {
-        const files = voiceRefAudioInput.files;
-        const pTag = voiceRefAudioContainer.querySelector('p');
-        if (files.length > 0) {
-            const fileName = files[0].name;
-            if (pTag) {
-                pTag.textContent = `已选择文件: ${fileName}`;
-            }
-        } else {
-             if (pTag) {
-                pTag.textContent = `拖放音频文件到此处或点击选择`;
-            }
-        }
-    });
-
-    // Add event listener for the voice audio record button
-    // recordVoiceAudioBtn.addEventListener('click', toggleRecording); // Moved above the drag/drop listeners
-
-
-    voiceRefAudioContainer.addEventListener('dragleave', () => {
-        voiceRefAudioContainer.classList.remove('dragover');
-    });
-
-    voiceRefAudioContainer.addEventListener('drop', (event) => {
-        event.preventDefault();
-        voiceRefAudioContainer.classList.remove('dragover');
-        const files = event.dataTransfer.files;
-        if (files.length > 0) {
-            voiceRefAudioInput.files = files;
-            // Optionally display the selected file name
-            const fileName = files[0].name;
-            const pTag = voiceRefAudioContainer.querySelector('p');
-            if (pTag) {
-                pTag.textContent = `已选择文件: ${fileName}`;
-            }
-        }
-    });
-
-    // Add click to select functionality
-    voiceRefAudioContainer.addEventListener('click', (event) => {
-         // Only trigger file input click if the click wasn't on the record button
-        if (event.target !== recordVoiceAudioBtn) {
-            voiceRefAudioInput.click();
-        }
-    });
-
-    // Update displayed file name when file is selected via click
-    voiceRefAudioInput.addEventListener('change', () => {
-        const files = voiceRefAudioInput.files;
-        const pTag = voiceRefAudioContainer.querySelector('p');
-        if (files.length > 0) {
-            const fileName = files[0].name;
-            if (pTag) {
-                pTag.textContent = `已选择文件: ${fileName}`;
-            }
-        } else {
-             if (pTag) {
-                pTag.textContent = `拖放音频文件到此处或点击选择`;
-            }
-        }
-    });
-
-    // Add drag and drop and click to select functionality to the new voice text file input
-    const voiceRefTextContainer = voiceInputGroup.querySelector(`#voice-ref-text-container-${voiceIndex}`);
-    const voiceRefTextFileInput = voiceInputGroup.querySelector(`#voice-ref-text-file-${voiceIndex}`);
-    const voiceRefTextInput = voiceInputGroup.querySelector(`.voice-ref-text`); // Get reference to the text input
-
-    voiceRefTextContainer.addEventListener('dragover', (event) => {
-        event.preventDefault();
-        voiceRefTextContainer.classList.add('dragover');
-    });
-
-    voiceRefTextContainer.addEventListener('dragleave', () => {
-        voiceRefTextContainer.classList.remove('dragover');
-    });
-
-    voiceRefTextContainer.addEventListener('drop', (event) => {
-        event.preventDefault();
-        voiceRefTextContainer.classList.remove('dragover');
-        const files = event.dataTransfer.files;
-        if (files.length > 0) {
-            handleTextFileUpload(files[0], voiceRefTextInput, voiceRefTextContainer);
-        }
-    });
-
-    voiceRefTextContainer.addEventListener('click', (event) => {
-         // Only trigger file input click if the click wasn't on the text input
-        if (event.target !== voiceRefTextInput) {
-            voiceRefTextFileInput.click();
-        }
-    });
-
-    voiceRefTextFileInput.addEventListener('change', (event) => {
-        const files = event.target.files;
-        if (files.length > 0) {
-            handleTextFileUpload(files[0], voiceRefTextInput, voiceRefTextContainer);
-        }
-    });
+    // Setup text file upload for the new voice text input
+    setupTextFileUpload(`voice-ref-text-container-${voiceIndex}`, `voice-ref-text-file-${voiceIndex}`, voiceInputGroup.querySelector('.voice-ref-text').id || `voice-ref-text-${voiceIndex}`);
 
 
     // Add event listener to the remove button
@@ -590,14 +486,20 @@ async function handleSynthesize(event) {
     loadingIndicator.style.display = 'block';
 
 
-    const modelName = document.getElementById('model-select').value;
+    const groupName = document.getElementById('model-select').value; // Get selected model group name
     const refAudioFile = document.getElementById('ref-audio').files[0];
     const refText = document.getElementById('ref-text').value;
     const genText = document.getElementById('gen-text').value;
     const language = document.getElementById('language-select').value; // Get language from select dropdown
 
-    if (!modelName || !refAudioFile || !genText) {
-        alert('请填写所有必需字段 (模型, 参考音频, 生成文本)');
+    // Find the selected model group
+    const selectedModelGroup = availableModels.find(modelGroup => modelGroup.name === groupName);
+
+    const subModelSelect = document.getElementById('sub-model-select');
+    const modelName = subModelSelect.value;
+
+    if (!groupName || !modelName || (!refAudioFile && !window.audioBase64) || !genText) {
+        alert('请填写所有必需字段 (模型组, 具体模型, 参考音频, 生成文本)');
         loadingIndicator.style.display = 'none'; // Hide loading on validation error
         return;
     }
@@ -606,13 +508,14 @@ async function handleSynthesize(event) {
     let refAudioBase64 = null;
     if (refAudioFile) {
         refAudioBase64 = await fileToBase64(refAudioFile);
-    } else if (audioBase64) { // Check if global audioBase64 from recording exists
-        refAudioBase64 = audioBase64;
+    } else if (window.audioBase64) { // Check if global audioBase64 from recording exists
+        refAudioBase64 = window.audioBase64;
     }
 
 
     const requestBody = {
-        model_name: modelName,
+        group_name: groupName,
+        model_name: modelName, // Use the determined modelName
         ref_audio: refAudioBase64, // Use the potentially recorded audio Base64
         ref_text: refText,
         gen_text: genText,
@@ -634,15 +537,20 @@ async function handleSynthesize(event) {
         const voiceRefAudioFile = voiceRefAudioInput.files[0];
         const voiceRefText = voiceRefTextInput.value;
 
-        if (voiceName && voiceRefAudioInput.files.length > 0) { // Check if a file is selected (either uploaded or recorded)
-            const voiceRefAudioFile = voiceRefAudioInput.files[0];
-            const voiceRefAudioBase64 = await fileToBase64(voiceRefAudioFile);
+        if (voiceName && (voiceRefAudioInput.files.length > 0 || window.audioBase64)) { // Check if a file is selected (either uploaded or recorded)
+            let voiceRefAudioBase64 = null;
+            if (voiceRefAudioInput.files.length > 0) {
+                 voiceRefAudioBase64 = await fileToBase64(voiceRefAudioInput.files[0]);
+            } else if (window.audioBase64) {
+                 voiceRefAudioBase64 = window.audioBase64;
+            }
+
             voices[voiceName] = {
                 ref_audio: voiceRefAudioBase64,
                 ref_text: voiceRefText,
             };
-        } else if (voiceName || voiceRefAudioInput.files.length > 0) {
-             alert(`请为音色 "${voiceName || (voiceRefAudioInput.files.length > 0 ? voiceRefAudioInput.files[0].name : '')}" 提供名称和参考音频.`);
+        } else if (voiceName || voiceRefAudioInput.files.length > 0 || window.audioBase64) {
+             alert(`请为音色 "${voiceName || (voiceRefAudioInput.files.length > 0 ? voiceRefAudioInput.files[0].name : '录音')}" 提供名称和参考音频.`);
              loadingIndicator.style.display = 'none'; // Hide loading on validation error
              return;
         }
@@ -676,13 +584,17 @@ async function handleSynthesize(event) {
 
         if (status === "completed") {
             // Request completed immediately, fetch and play audio
+            clearInterval(pollingInterval); // Stop polling
+            pollingInterval = null;
             loadingIndicator.style.display = 'none'; // Hide loading
-            // Fetch the audio data (the status endpoint for completed requests returns the audio)
-            const audioResponse = await fetch(`${API_BASE_URL}/tts/status/${currentRequestId}`);
-            if (!audioResponse.ok) {
-                 throw new Error(`Failed to fetch audio data: ${audioResponse.status}`);
-            }
-            const audioBlob = await audioResponse.blob();
+
+            // Request completed, fetch the audio data
+            clearInterval(pollingInterval); // Stop polling
+            pollingInterval = null;
+            loadingIndicator.style.display = 'none'; // Hide loading
+
+            // The status endpoint for completed requests directly returns the audio data
+            const audioBlob = await response.blob(); // Get the response as a Blob
             const audioUrl = URL.createObjectURL(audioBlob);
             resultDiv.innerHTML = '<h2>生成的语音:</h2><audio id="audio-player" controls></audio>'; // Reset result div
             const updatedAudioPlayer = document.getElementById('audio-player'); // Get reference to the new audio player
@@ -699,7 +611,7 @@ async function handleSynthesize(event) {
 
         } else if (status === "queued") {
             // Request is queued
-            const position = responseData.position;
+            const position = statusData.position;
             resultDiv.innerHTML = `<h2>生成的语音:</h2><p>您的请求已加入队列，当前排队位置：${position}</p><audio id="audio-player" controls></audio>`;
             // Start polling for status
             pollingInterval = setInterval(() => checkRequestStatus(currentRequestId), 2000); // Poll every 2 seconds
@@ -747,12 +659,13 @@ async function checkRequestStatus(requestId) {
             pollingInterval = null;
             loadingIndicator.style.display = 'none'; // Hide loading
 
-            // Fetch the audio data (the status endpoint for completed requests returns the audio)
-            const audioResponse = await fetch(`${API_BASE_URL}/tts/status/${requestId}`);
-            if (!audioResponse.ok) {
-                 throw new Error(`Failed to fetch audio data: ${audioResponse.status}`);
-            }
-            const audioBlob = await audioResponse.blob();
+            // Request completed, fetch the audio data
+            clearInterval(pollingInterval); // Stop polling
+            pollingInterval = null;
+            loadingIndicator.style.display = 'none'; // Hide loading
+
+            // The status endpoint for completed requests directly returns the audio data
+            const audioBlob = await response.blob(); // Get the response as a Blob
             const audioUrl = URL.createObjectURL(audioBlob);
             resultDiv.innerHTML = '<h2>生成的语音:</h2><audio id="audio-player" controls></audio>'; // Reset result div
             const updatedAudioPlayer = document.getElementById('audio-player'); // Get reference to the new audio player
