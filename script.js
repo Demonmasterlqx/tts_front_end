@@ -402,12 +402,8 @@ function updateModelAndLanguageOptions() {
 
     // Update language options
     languageSelect.innerHTML = ''; // Clear current options
-    const autoOption = document.createElement('option');
-    autoOption.value = "";
-    autoOption.textContent = "自动检测或使用模型默认";
-    languageSelect.appendChild(autoOption);
-
-    if (selectedModelGroup && selectedModelGroup.language) {
+    
+    if (selectedModelGroup && selectedModelGroup.language && selectedModelGroup.language.length > 0) {
         selectedModelGroup.language.forEach(lang => {
             const option = document.createElement('option');
             option.value = lang;

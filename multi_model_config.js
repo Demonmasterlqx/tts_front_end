@@ -128,15 +128,27 @@ function updateLanguageOptions(selectedModels) {
     const commonLanguages = getCommonLanguages(selectedModels);
     
     languageSelect.innerHTML = '';
-    commonLanguages.forEach(lang => {
-        const option = document.createElement('option');
-        option.value = lang;
-        option.textContent = lang;
-        languageSelect.appendChild(option);
-    });
-    
     if (commonLanguages.length > 0) {
+        commonLanguages.forEach(lang => {
+            const option = document.createElement('option');
+            option.value = lang;
+            option.textContent = lang;
+            languageSelect.appendChild(option);
+        });
         languageSelect.value = commonLanguages[0];
+    } else {
+        // 如果没有共同语言，使用第一个模型的语言
+        const firstModel = selectedModels[0];
+        const modelGroup = availableModels.find(g => g.name === firstModel.group_name);
+        if (modelGroup && modelGroup.language && modelGroup.language.length > 0) {
+            modelGroup.language.forEach(lang => {
+                const option = document.createElement('option');
+                option.value = lang;
+                option.textContent = lang;
+                languageSelect.appendChild(option);
+            });
+            languageSelect.value = modelGroup.language[0];
+        }
     }
 }
 
